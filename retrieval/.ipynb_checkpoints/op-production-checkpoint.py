@@ -96,6 +96,7 @@ def torrentfields(vol_ffn):
     start_time = cftime.num2pydate(radar.time['data'][start_ray_idx], radar.time['units'])
     end_time = cftime.num2pydate(radar.time['data'][end_ray_idx], radar.time['units'])
     valid_time = start_time + (end_time-start_time)/2
+    valid_time = ort.basic.round_to_nearest_minute(valid_time)
     date_str = valid_time.strftime('%Y%m%d')
     
     #get radar band
