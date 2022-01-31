@@ -43,6 +43,8 @@ def buffer(vol_ffn):
     except Exception as e:
         print('failed on', vol_ffn,'with',e)
         
+#CUSTOM OPENRADARTOOLS LIBS
+
 def do_gatefilter(radar, gf=None, refl_name='DBZ', phidp_name="PHIDP", rhohv_name='RHOHV_CORR', zdr_name="ZDR", despeckle_field=False):
     """
     Basic filtering function for dual-polarisation data.
@@ -81,7 +83,55 @@ def do_gatefilter(radar, gf=None, refl_name='DBZ', phidp_name="PHIDP", rhohv_nam
 
     return gf
 
+def det_sys_phase_gf(radar, gatefilter, phidp_field=None, first_gate=30, sweep=0):
+    """
+    Determine the system phase.
+
+    Parameters
+    ----------
+    radar : Radar
+        Radar object for which to determine the system phase.
+    gatefilter : Gatefilter
+        Gatefilter object highlighting valid gates.
+    phidp_field : str, optional
+        Field name within the radar object which represents
+        differential phase shift. A value of None will use the default
+        field name as defined in the Py-ART configuration file.
+    first_gate : int, optional
+        Gate index for where to being applying the gatefilter.
+
+    Returns
+    -------
+    sys_phase : float or None
+        Estimate of the system phase. None is not estimate can be made.
+
+    """
+    # parse the field parameters
+    if phidp_field is None:
+        phidp_field = get_field_name('differential_phase')
+    phidp = radar.fields[phidp_field]['data'][:, first_gate:]
+    first_ray_idx = radar.sweep_start_ray_index['data'][sweep]
+    last_ray_idx = radar.sweep_end_ray_index['data'][sweep]
+    is_meteo = gatefilter.gate_included[:, first_gate:]
+    return _det_sys_phase_gf(phidp, first_ray_idx, last_ray_idx, is_meteo)
+
+def _det_sys_phase_gf(phidp, first_ray_idx, last_ray_idx, radar_meteo):
+    """ Determine the system phase, see :py:func:`det_sys_phase`. """
+    good = False
+    phases = []
+    for radial in range(first_ray_idx, last_ray_idx + 1):
+        meteo = radar_meteo[radial, :]
+        mpts = np.where(meteo)
+        if len(mpts[0]) > 25:
+            good = True
+            msmth_phidp = pyart.correct.phase_proc.smooth_and_trim(phidp[radial, mpts[0]], 9)
+            phases.append(msmth_phidp[0:25].min())
+    if not good:
+        return None
+    return np.median(phases), np.std(phases)
         
+###########################################################    
+
 def torrentfields(vol_ffn):
 
     print('processing', vol_ffn)
@@ -166,7 +216,7 @@ def torrentfields(vol_ffn):
     sysphase_gatefilter.exclude_below('DBZH_CLEAN', 5)
     sysphase_gatefilter.exclude_below('RHOHV_CORR', 0.95)
     
-    sysphase = ort.dp.det_sys_phase_gf(radar, sysphase_gatefilter, phidp_field="PHIDP", sweep=sort_idx[1])
+    sysphase, sysphase_std = ort.dp.det_sys_phase_gf(radar, sysphase_gatefilter, phidp_field="PHIDP", sweep=sort_idx[1])
     if sysphase is None:
         phase_offset_name = "PHIDP"
         if VERBOSE:
@@ -175,6 +225,7 @@ def torrentfields(vol_ffn):
         kdp_field_name = 'KDP'
         phidp_field_name = 'PHIDP'
         radar.fields[phidp_field_name]['system_phase'] = -999
+        radar.fields[phidp_field_name]['system_phase_std'] = -999
     else:
         radar.add_field_like("PHIDP", "PHIDP_offset", rawphi - sysphase, replace_existing=True)
         phase_offset_name = "PHIDP_offset"
@@ -189,7 +240,8 @@ def torrentfields(vol_ffn):
         kdp_field_name = 'KDP_B'
         phidp_field_name = 'PHIDP_B'
         #add metadata on system phase
-        radar.fields[phidp_field_name]['system_phase'] = round(sysphase)
+        radar.fields[phidp_field_name]['system_phase'] = sysphase
+        radar.fields[phidp_field_name]['system_phase_std'] = sysphase_std
     
     
     if VERBOSE2:
