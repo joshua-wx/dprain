@@ -113,7 +113,8 @@ def det_sys_phase_gf(radar, gatefilter, phidp_field=None, first_gate=30, sweep=0
     first_ray_idx = radar.sweep_start_ray_index['data'][sweep]
     last_ray_idx = radar.sweep_end_ray_index['data'][sweep]
     is_meteo = gatefilter.gate_included[:, first_gate:]
-    return _det_sys_phase_gf(phidp, first_ray_idx, last_ray_idx, is_meteo)
+    median, std = _det_sys_phase_gf(phidp, first_ray_idx, last_ray_idx, is_meteo)
+    return median, std
 
 def _det_sys_phase_gf(phidp, first_ray_idx, last_ray_idx, radar_meteo):
     """ Determine the system phase, see :py:func:`det_sys_phase`. """
@@ -127,7 +128,7 @@ def _det_sys_phase_gf(phidp, first_ray_idx, last_ray_idx, radar_meteo):
             msmth_phidp = pyart.correct.phase_proc.smooth_and_trim(phidp[radial, mpts[0]], 9)
             phases.append(msmth_phidp[0:25].min())
     if not good:
-        return None
+        return None, None
     return np.median(phases), np.std(phases)
         
 ###########################################################    
@@ -216,7 +217,7 @@ def torrentfields(vol_ffn):
     sysphase_gatefilter.exclude_below('DBZH_CLEAN', 5)
     sysphase_gatefilter.exclude_below('RHOHV_CORR', 0.95)
     
-    sysphase, sysphase_std = ort.dp.det_sys_phase_gf(radar, sysphase_gatefilter, phidp_field="PHIDP", sweep=sort_idx[1])
+    sysphase, sysphase_std = det_sys_phase_gf(radar, sysphase_gatefilter, phidp_field="PHIDP", sweep=sort_idx[1])
     if sysphase is None:
         phase_offset_name = "PHIDP"
         if VERBOSE:
@@ -460,32 +461,32 @@ def manager(date_str):
     temppath = ort.file.unpack_zip(vol_zip)
     vol_ffn_list = sorted(glob(temppath + '/*.h5'))
 
-    timeout = 300
-    for arg_slice in ort.basic.chunks(vol_ffn_list, NCPU):
-        with ProcessPool() as pool:
-            future = pool.map(buffer, arg_slice, timeout=timeout)
-            iterator = future.result()
-            while True:
-                try:
-                    _ = next(iterator)
-                except StopIteration:
-                    break
-                except TimeoutError as error:
-                    print("function took longer than %d seconds" % timeout, 'for', arg_slice)
-                except ProcessExpired as error:
-                    print("%s. Exit code: %d" % (error, error.exitcode))
-                except TypeError as error:
-                    print("%s. Exit code: %d" % (error, error.exitcode))
-                except Exception:
-                    traceback.print_exc()
+#     timeout = 300
+#     for arg_slice in ort.basic.chunks(vol_ffn_list, NCPU):
+#         with ProcessPool() as pool:
+#             future = pool.map(buffer, arg_slice, timeout=timeout)
+#             iterator = future.result()
+#             while True:
+#                 try:
+#                     _ = next(iterator)
+#                 except StopIteration:
+#                     break
+#                 except TimeoutError as error:
+#                     print("function took longer than %d seconds" % timeout, 'for', arg_slice)
+#                 except ProcessExpired as error:
+#                     print("%s. Exit code: %d" % (error, error.exitcode))
+#                 except TypeError as error:
+#                     print("%s. Exit code: %d" % (error, error.exitcode))
+#                 except Exception:
+#                     traceback.print_exc()
                 
             
     
-#     import time    
-#     for vol_ffn in vol_ffn_list:
-#         start = time.time()
-#         try:
-#             torrentfields(vol_ffn)
+    import time    
+    for vol_ffn in vol_ffn_list:
+        #start = time.time()
+        #try:
+        torrentfields(vol_ffn)
 #         except Exception as e:
 #             print('')
 #             print('FAILED on', vol_ffn, 'with', e)
@@ -584,4 +585,4 @@ if __name__ == '__main__':
         warnings.simplefilter("ignore")
         main()
         
-    #%run op-production.py -r 2 -d1 20211201 -d2 20211201 -j 8
+    #%run op-production.py -r 2 -d1 20220202 -d2 20220202 -j 8
